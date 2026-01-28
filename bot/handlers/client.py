@@ -371,13 +371,13 @@ async def select_date(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("time:"))
+@router.callback_query(F.data.startswith("time|"))
 async def select_time(callback: CallbackQuery, state: FSMContext):
     """Process time selection - show confirmation."""
     user = await get_user(callback.from_user.id)
     lang = user['language'] if user else 'ru'
 
-    parts = callback.data.split(":")
+    parts = callback.data.split("|")
     date_str = parts[1]
     time_str = parts[2]
     service_id = int(parts[3])

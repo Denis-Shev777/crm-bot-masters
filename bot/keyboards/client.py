@@ -141,7 +141,7 @@ def time_slots_keyboard(slots: list, date_str: str, service_id: int, lang: str) 
         for slot in slots:
             row.append(InlineKeyboardButton(
                 text=slot,
-                callback_data=f"time:{date_str}:{slot}:{service_id}"
+                callback_data=f"time|{date_str}|{slot}|{service_id}"
             ))
             if len(row) == 4:
                 builder.row(*row)
