@@ -1,7 +1,8 @@
 """Master (admin) panel handlers."""
-from telebot.async_telebot import AsyncTeleBot
+import asyncio
+import telebot
 from telebot.types import Message, CallbackQuery
-from telebot.asyncio_handler_backends import State, StatesGroup
+from telebot.handler_backends import State, StatesGroup
 from datetime import datetime
 import pytz
 
@@ -19,6 +20,12 @@ from bot.keyboards.master import (
 from bot.keyboards.client import main_menu_keyboard
 from bot.utils import format_date
 from config import ADMIN_IDS, MASTER_PASSWORD, TIMEZONE
+
+
+def run_async(coro):
+    """Run async function in sync context."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
 
 
 class MasterAuth(StatesGroup):
@@ -62,67 +69,67 @@ def is_master(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 
-def register_handlers(bot: AsyncTeleBot):
+def register_handlers(bot: telebot.TeleBot):
     """Register all master handlers."""
 
     # ============ MASTER LOGIN ============
 
     @bot.message_handler(commands=['master'])
-    async def cmd_master(message: Message):
+    def cmd_master(message: Message):
         """Master panel access."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
         if is_master(message.from_user.id):
             # Already authorized
-            await bot.send_message(
+            bot.send_message(
                 message.chat.id,
                 get_text("master_menu", lang),
                 reply_markup=master_menu_keyboard(lang)
             )
         else:
             # Request password
-            await bot.send_message(message.chat.id, "Enter master password:")
-            await bot.set_state(message.from_user.id, MasterAuth.password, message.chat.id)
+            bot.send_message(message.chat.id, "Enter master password:")
+            bot.set_state(message.from_user.id, MasterAuth.password, message.chat.id)
 
     @bot.message_handler(state=MasterAuth.password)
-    async def process_master_password(message: Message):
+    def process_master_password(message: Message):
         """Process master password."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
         if message.text == MASTER_PASSWORD:
             # Add to admin list temporarily
             ADMIN_IDS.append(message.from_user.id)
-            await bot.delete_state(message.from_user.id, message.chat.id)
-            await bot.send_message(
+            bot.delete_state(message.from_user.id, message.chat.id)
+            bot.send_message(
                 message.chat.id,
                 get_text("master_menu", lang),
                 reply_markup=master_menu_keyboard(lang)
             )
         else:
-            await bot.send_message(message.chat.id, "Wrong password. Try again or /start")
-            await bot.delete_state(message.from_user.id, message.chat.id)
+            bot.send_message(message.chat.id, "Wrong password. Try again or /start")
+            bot.delete_state(message.from_user.id, message.chat.id)
 
     # ============ TODAY'S APPOINTMENTS ============
 
     @bot.message_handler(func=lambda m: m.text in ["📋 Записи на сегодня", "📋 Today's Bookings"])
-    async def show_today_appointments(message: Message):
+    def show_today_appointments(message: Message):
         """Show today's appointments."""
         if not is_master(message.from_user.id):
-            await bot.send_message(message.chat.id, get_text("master_only", "ru"))
+            bot.send_message(message.chat.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
         tz = pytz.timezone(TIMEZONE)
         today = datetime.now(tz).strftime("%Y-%m-%d")
 
-        appointments = await get_appointments(date_str=today)
+        appointments = run_async(get_appointments(date_str=today))
 
         if not appointments:
-            await bot.send_message(message.chat.id, get_text("no_appointments_today", lang))
+            bot.send_message(message.chat.id, get_text("no_appointments_today", lang))
             return
 
         # Format appointments list
@@ -141,12 +148,12 @@ def register_handlers(bot: AsyncTeleBot):
                         date=format_date(today, lang),
                         list="\n\n".join(items))
 
-        await bot.send_message(message.chat.id, text)
+        bot.send_message(message.chat.id, text)
 
         # Show action buttons for each appointment
         for appt in appointments:
             if appt['status'] == 'pending':
-                await bot.send_message(
+                bot.send_message(
                     message.chat.id,
                     f"🔔 {appt['client_name']} - {appt['time']}",
                     reply_markup=appointment_actions_keyboard(
@@ -157,36 +164,36 @@ def register_handlers(bot: AsyncTeleBot):
     # ============ CALENDAR VIEW ============
 
     @bot.message_handler(func=lambda m: m.text in ["📅 Календарь записей", "📅 Calendar"])
-    async def show_master_calendar(message: Message):
+    def show_master_calendar(message: Message):
         """Show master calendar."""
         if not is_master(message.from_user.id):
-            await bot.send_message(message.chat.id, get_text("master_only", "ru"))
+            bot.send_message(message.chat.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             "Выберите день / Select day:",
             reply_markup=master_calendar_keyboard(lang)
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_day:"))
-    async def show_day_appointments(callback: CallbackQuery):
+    def show_day_appointments(callback: CallbackQuery):
         """Show appointments for specific day."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id, get_text("master_only", "ru"))
+            bot.answer_callback_query(callback.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         date_str = callback.data.split(":")[1]
-        appointments = await get_appointments(date_str=date_str)
+        appointments = run_async(get_appointments(date_str=date_str))
 
         if not appointments:
-            await bot.answer_callback_query(callback.id, f"No appointments on {date_str}", show_alert=True)
+            bot.answer_callback_query(callback.id, f"No appointments on {date_str}", show_alert=True)
             return
 
         items = []
@@ -197,38 +204,38 @@ def register_handlers(bot: AsyncTeleBot):
 
         text = f"📅 {format_date(date_str, lang)}\n\n" + "\n\n".join(items)
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             text,
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=master_calendar_keyboard(lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     # ============ APPOINTMENT ACTIONS ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_confirm:"))
-    async def confirm_appointment(callback: CallbackQuery):
+    def confirm_appointment(callback: CallbackQuery):
         """Confirm appointment."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         appointment_id = int(callback.data.split(":")[1])
-        await update_appointment(appointment_id, status='confirmed')
+        run_async(update_appointment(appointment_id, status='confirmed'))
 
         # Get appointment details to notify client
-        appt = await get_appointment(appointment_id)
+        appt = run_async(get_appointment(appointment_id))
         if appt:
             client_lang = 'ru'
-            user = await get_user(appt['client_telegram_id'])
+            user = run_async(get_user(appt['client_telegram_id']))
             if user:
                 client_lang = user['language']
 
             service_name = appt.get(f'service_name_{client_lang}') or appt.get('service_name_ru')
 
             try:
-                await bot.send_message(
+                bot.send_message(
                     appt['client_telegram_id'],
                     get_text("booking_confirmed_client", client_lang,
                              service=service_name,
@@ -238,58 +245,58 @@ def register_handlers(bot: AsyncTeleBot):
             except Exception:
                 pass
 
-        await bot.answer_callback_query(callback.id, "✅ Confirmed!")
-        await bot.edit_message_text(
+        bot.answer_callback_query(callback.id, "✅ Confirmed!")
+        bot.edit_message_text(
             "✅ Appointment confirmed",
             callback.message.chat.id,
             callback.message.message_id
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_reject:"))
-    async def reject_appointment(callback: CallbackQuery):
+    def reject_appointment(callback: CallbackQuery):
         """Reject appointment."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         appointment_id = int(callback.data.split(":")[1])
-        await update_appointment(appointment_id, status='cancelled')
+        run_async(update_appointment(appointment_id, status='cancelled'))
 
         # Notify client
-        appt = await get_appointment(appointment_id)
+        appt = run_async(get_appointment(appointment_id))
         if appt:
             client_lang = 'ru'
-            user = await get_user(appt['client_telegram_id'])
+            user = run_async(get_user(appt['client_telegram_id']))
             if user:
                 client_lang = user['language']
 
             try:
-                await bot.send_message(
+                bot.send_message(
                     appt['client_telegram_id'],
                     get_text("booking_rejected_client", client_lang)
                 )
             except Exception:
                 pass
 
-        await bot.answer_callback_query(callback.id, "❌ Rejected")
-        await bot.edit_message_text(
+        bot.answer_callback_query(callback.id, "❌ Rejected")
+        bot.edit_message_text(
             "❌ Appointment rejected",
             callback.message.chat.id,
             callback.message.message_id
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_complete:"))
-    async def complete_appointment(callback: CallbackQuery):
+    def complete_appointment(callback: CallbackQuery):
         """Mark appointment as completed."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         appointment_id = int(callback.data.split(":")[1])
-        await update_appointment(appointment_id, status='completed')
+        run_async(update_appointment(appointment_id, status='completed'))
 
-        await bot.answer_callback_query(callback.id, "✔️ Completed!")
-        await bot.edit_message_text(
+        bot.answer_callback_query(callback.id, "✔️ Completed!")
+        bot.edit_message_text(
             "✔️ Appointment marked as completed",
             callback.message.chat.id,
             callback.message.message_id
@@ -298,16 +305,16 @@ def register_handlers(bot: AsyncTeleBot):
     # ============ SCHEDULE SETTINGS ============
 
     @bot.message_handler(func=lambda m: m.text in ["⚙️ Настройки расписания", "⚙️ Schedule Settings"])
-    async def show_schedule_settings(message: Message):
+    def show_schedule_settings(message: Message):
         """Show schedule settings."""
         if not is_master(message.from_user.id):
-            await bot.send_message(message.chat.id, get_text("master_only", "ru"))
+            bot.send_message(message.chat.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        schedule = await get_schedule()
+        schedule = run_async(get_schedule())
         days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
         text = "📅 Текущее расписание / Current schedule:\n\n"
@@ -316,13 +323,13 @@ def register_handlers(bot: AsyncTeleBot):
 
         text += "\nВыберите день для изменения / Select day to edit:"
 
-        await bot.send_message(message.chat.id, text, reply_markup=schedule_settings_keyboard(lang))
+        bot.send_message(message.chat.id, text, reply_markup=schedule_settings_keyboard(lang))
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_sched:"))
-    async def edit_schedule_day(callback: CallbackQuery):
+    def edit_schedule_day(callback: CallbackQuery):
         """Edit schedule for specific day."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         day = int(callback.data.split(":")[1])
@@ -332,30 +339,30 @@ def register_handlers(bot: AsyncTeleBot):
         days = ["Понедельник/Monday", "Вторник/Tuesday", "Среда/Wednesday",
                 "Четверг/Thursday", "Пятница/Friday", "Суббота/Saturday", "Воскресенье/Sunday"]
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"📅 {days[day]}\n\nВведите время начала работы (HH:MM), например 09:00\nEnter start time (HH:MM), e.g. 09:00:",
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.set_state(callback.from_user.id, ScheduleSettings.start_time, callback.message.chat.id)
-        await bot.answer_callback_query(callback.id)
+        bot.set_state(callback.from_user.id, ScheduleSettings.start_time, callback.message.chat.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.message_handler(state=ScheduleSettings.start_time)
-    async def process_schedule_start(message: Message):
+    def process_schedule_start(message: Message):
         """Process schedule start time."""
         if not is_master(message.from_user.id):
             return
 
         data = get_master_data(message.from_user.id)
         data['start_time'] = message.text
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             "Введите время окончания работы (HH:MM), например 18:00\nEnter end time (HH:MM), e.g. 18:00:"
         )
-        await bot.set_state(message.from_user.id, ScheduleSettings.end_time, message.chat.id)
+        bot.set_state(message.from_user.id, ScheduleSettings.end_time, message.chat.id)
 
     @bot.message_handler(state=ScheduleSettings.end_time)
-    async def process_schedule_end(message: Message):
+    def process_schedule_end(message: Message):
         """Process schedule end time and save."""
         if not is_master(message.from_user.id):
             return
@@ -365,14 +372,14 @@ def register_handlers(bot: AsyncTeleBot):
         start = data['start_time']
         end = message.text
 
-        await set_schedule(day, start, end)
+        run_async(set_schedule(day, start, end))
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
         clear_master_data(message.from_user.id)
-        await bot.delete_state(message.from_user.id, message.chat.id)
-        await bot.send_message(
+        bot.delete_state(message.from_user.id, message.chat.id)
+        bot.send_message(
             message.chat.id,
             f"✅ Расписание обновлено / Schedule updated!\n{start} - {end}",
             reply_markup=master_menu_keyboard(lang)
@@ -381,134 +388,134 @@ def register_handlers(bot: AsyncTeleBot):
     # ============ BLOCK SLOT ============
 
     @bot.message_handler(func=lambda m: m.text in ["🚫 Закрыть слот", "🚫 Block Slot"])
-    async def show_block_calendar(message: Message):
+    def show_block_calendar(message: Message):
         """Show calendar for blocking slots."""
         if not is_master(message.from_user.id):
-            await bot.send_message(message.chat.id, get_text("master_only", "ru"))
+            bot.send_message(message.chat.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             "Выберите дату для блокировки / Select date to block:",
             reply_markup=block_slot_calendar_keyboard(lang)
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_block_day:"))
-    async def select_block_day(callback: CallbackQuery):
+    def select_block_day(callback: CallbackQuery):
         """Select day to block."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         date_str = callback.data.split(":")[1]
         data = get_master_data(callback.from_user.id)
         data['block_date'] = date_str
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"📅 {format_date(date_str, lang)}\n\nВыберите тип блокировки / Select block type:",
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=block_type_keyboard(date_str, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_block_full:"))
-    async def block_full_day(callback: CallbackQuery):
+    def block_full_day(callback: CallbackQuery):
         """Block full day."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         date_str = callback.data.split(":")[1]
-        await block_slot(date_str, is_full_day=True, reason="Day off")
+        run_async(block_slot(date_str, is_full_day=True, reason="Day off"))
 
         clear_master_data(callback.from_user.id)
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"🚫 День {date_str} заблокирован / Day blocked",
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.answer_callback_query(callback.id, "✅ Blocked!")
+        bot.answer_callback_query(callback.id, "✅ Blocked!")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_block_time:"))
-    async def show_block_time_slots(callback: CallbackQuery):
+    def show_block_time_slots(callback: CallbackQuery):
         """Show time slots for blocking."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         date_str = callback.data.split(":")[1]
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"📅 {format_date(date_str, lang)}\n\nВыберите время для блокировки / Select time to block:",
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=block_time_slots_keyboard(date_str, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_block_slot|"))
-    async def block_specific_slot(callback: CallbackQuery):
+    def block_specific_slot(callback: CallbackQuery):
         """Block specific time slot."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         parts = callback.data.split("|")
         date_str = parts[1]
         time_str = parts[2]
 
-        await block_slot(date_str, start_time=time_str, end_time=time_str, reason="Blocked slot")
+        run_async(block_slot(date_str, start_time=time_str, end_time=time_str, reason="Blocked slot"))
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"🚫 Слот {time_str} на {format_date(date_str, lang)} заблокирован / Slot blocked",
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.answer_callback_query(callback.id, "✅ Blocked!")
+        bot.answer_callback_query(callback.id, "✅ Blocked!")
 
     # ============ STATISTICS ============
 
     @bot.message_handler(func=lambda m: m.text in ["📊 Статистика", "📊 Statistics"])
-    async def show_stats_menu(message: Message):
+    def show_stats_menu(message: Message):
         """Show statistics period selection."""
         if not is_master(message.from_user.id):
-            await bot.send_message(message.chat.id, get_text("master_only", "ru"))
+            bot.send_message(message.chat.id, get_text("master_only", "ru"))
             return
 
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             "Выберите период / Select period:",
             reply_markup=stats_period_keyboard(lang)
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_stats:"))
-    async def show_statistics(callback: CallbackQuery):
+    def show_statistics(callback: CallbackQuery):
         """Show statistics for period."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         days = int(callback.data.split(":")[1])
-        stats = await get_statistics(days)
+        stats = run_async(get_statistics(days))
 
         popular = "\n".join([f"  • {name}: {count}" for name, count in stats['popular_services']])
 
@@ -521,67 +528,67 @@ def register_handlers(bot: AsyncTeleBot):
                         no_show=stats['no_show_rate'],
                         popular=popular or "—")
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             text,
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     # ============ BACK TO CLIENT MENU ============
 
     @bot.message_handler(func=lambda m: m.text in ["« Назад", "« Back"])
-    async def back_to_main(message: Message):
+    def back_to_main(message: Message):
         """Return to client main menu."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("main_menu", lang),
             reply_markup=main_menu_keyboard(lang)
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("m_back:"))
-    async def master_back(callback: CallbackQuery):
+    def master_back(callback: CallbackQuery):
         """Handle master panel back navigation."""
         if not is_master(callback.from_user.id):
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         target = callback.data.split(":")[1]
 
         if target == "main":
-            await bot.edit_message_text(
+            bot.edit_message_text(
                 get_text("master_menu", lang),
                 callback.message.chat.id,
                 callback.message.message_id
             )
         elif target == "block":
-            await bot.edit_message_text(
+            bot.edit_message_text(
                 "Выберите дату для блокировки / Select date to block:",
                 callback.message.chat.id,
                 callback.message.message_id,
                 reply_markup=block_slot_calendar_keyboard(lang)
             )
 
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
 
 # ============ NOTIFICATION HELPER ============
 
-async def notify_master_new_booking(bot: AsyncTeleBot, appointment_id: int):
+def notify_master_new_booking(bot: telebot.TeleBot, appointment_id: int):
     """Send notification to master about new booking."""
-    appt = await get_appointment(appointment_id)
+    appt = run_async(get_appointment(appointment_id))
     if not appt:
         return
 
     for admin_id in ADMIN_IDS:
         try:
-            admin_user = await get_user(admin_id)
+            admin_user = run_async(get_user(admin_id))
             lang = admin_user['language'] if admin_user else 'ru'
 
             service_name = appt.get(f'service_name_{lang}') or appt.get('service_name_ru')
@@ -594,7 +601,7 @@ async def notify_master_new_booking(bot: AsyncTeleBot, appointment_id: int):
                             time=appt['time'],
                             phone=appt['client_phone'] or "-")
 
-            await bot.send_message(
+            bot.send_message(
                 admin_id,
                 text,
                 reply_markup=appointment_actions_keyboard(

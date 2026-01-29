@@ -1,7 +1,8 @@
 """Client handlers for the bot."""
-from telebot.async_telebot import AsyncTeleBot
+import asyncio
+import telebot
 from telebot.types import Message, CallbackQuery
-from telebot.asyncio_handler_backends import State, StatesGroup
+from telebot.handler_backends import State, StatesGroup
 
 from database import (
     get_user, create_user, update_user,
@@ -18,6 +19,12 @@ from bot.keyboards.client import (
 )
 from bot.utils import get_available_slots, format_date
 from config import MAX_ACTIVE_BOOKINGS, BOOKING_DAYS_AHEAD, ADMIN_IDS, REFERRAL_DISCOUNT_PERCENT
+
+
+def run_async(coro):
+    """Run async function in sync context."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
 
 
 class Registration(StatesGroup):
@@ -50,15 +57,15 @@ def clear_user_data(user_id: int):
         del user_data[user_id]
 
 
-def register_handlers(bot: AsyncTeleBot):
+def register_handlers(bot: telebot.TeleBot):
     """Register all client handlers."""
 
     # ============ START & REGISTRATION ============
 
     @bot.message_handler(commands=['start'])
-    async def cmd_start(message: Message):
+    def cmd_start(message: Message):
         """Handle /start command."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
 
         # Check for referral code in deep link
         referral_code = None
@@ -69,49 +76,49 @@ def register_handlers(bot: AsyncTeleBot):
 
         if user:
             # Existing user - show main menu
-            await bot.send_message(
+            bot.send_message(
                 message.chat.id,
                 get_text("main_menu", user['language']),
                 reply_markup=main_menu_keyboard(user['language'])
             )
         else:
             # New user - start registration
-            await bot.send_message(
+            bot.send_message(
                 message.chat.id,
                 get_text("welcome", "ru"),
                 reply_markup=language_keyboard()
             )
-            await bot.set_state(message.from_user.id, Registration.language, message.chat.id)
+            bot.set_state(message.from_user.id, Registration.language, message.chat.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"), state=Registration.language)
-    async def process_language(callback: CallbackQuery):
+    def process_language(callback: CallbackQuery):
         """Process language selection during registration."""
         lang = callback.data.split(":")[1]
         data = get_user_data(callback.from_user.id)
         data['language'] = lang
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("ask_name", lang),
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.set_state(callback.from_user.id, Registration.name, callback.message.chat.id)
-        await bot.answer_callback_query(callback.id)
+        bot.set_state(callback.from_user.id, Registration.name, callback.message.chat.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.message_handler(state=Registration.name)
-    async def process_name(message: Message):
+    def process_name(message: Message):
         """Process name input."""
         data = get_user_data(message.from_user.id)
         lang = data.get('language', 'ru')
         data['name'] = message.text
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("ask_phone", lang),
             reply_markup=phone_keyboard(lang)
         )
-        await bot.set_state(message.from_user.id, Registration.phone, message.chat.id)
+        bot.set_state(message.from_user.id, Registration.phone, message.chat.id)
 
     @bot.message_handler(content_types=['contact'], state=Registration.phone)
-    async def process_phone_contact(message: Message):
+    def process_phone_contact(message: Message):
         """Process phone from contact."""
         data = get_user_data(message.from_user.id)
         lang = data.get('language', 'ru')
@@ -119,25 +126,25 @@ def register_handlers(bot: AsyncTeleBot):
         phone = message.contact.phone_number
         referral_code = data.get('referral_code')
 
-        await create_user(
+        run_async(create_user(
             telegram_id=message.from_user.id,
             username=message.from_user.username,
             name=name,
             phone=phone,
             language=lang,
             referral_code=referral_code
-        )
+        ))
 
         clear_user_data(message.from_user.id)
-        await bot.delete_state(message.from_user.id, message.chat.id)
-        await bot.send_message(
+        bot.delete_state(message.from_user.id, message.chat.id)
+        bot.send_message(
             message.chat.id,
             get_text("registration_complete", lang, name=name),
             reply_markup=main_menu_keyboard(lang)
         )
 
     @bot.message_handler(state=Registration.phone)
-    async def process_phone_text(message: Message):
+    def process_phone_text(message: Message):
         """Process phone from text."""
         data = get_user_data(message.from_user.id)
         lang = data.get('language', 'ru')
@@ -145,18 +152,18 @@ def register_handlers(bot: AsyncTeleBot):
         phone = message.text
         referral_code = data.get('referral_code')
 
-        await create_user(
+        run_async(create_user(
             telegram_id=message.from_user.id,
             username=message.from_user.username,
             name=name,
             phone=phone,
             language=lang,
             referral_code=referral_code
-        )
+        ))
 
         clear_user_data(message.from_user.id)
-        await bot.delete_state(message.from_user.id, message.chat.id)
-        await bot.send_message(
+        bot.delete_state(message.from_user.id, message.chat.id)
+        bot.send_message(
             message.chat.id,
             get_text("registration_complete", lang, name=name),
             reply_markup=main_menu_keyboard(lang)
@@ -165,120 +172,120 @@ def register_handlers(bot: AsyncTeleBot):
     # ============ MAIN MENU ============
 
     @bot.message_handler(func=lambda m: m.text in ["📅 Записаться", "📅 Book Now"])
-    async def show_categories(message: Message):
+    def show_categories(message: Message):
         """Show service categories."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         if not user:
-            await bot.send_message(message.chat.id, "Please /start first")
+            bot.send_message(message.chat.id, "Please /start first")
             return
 
         lang = user['language']
-        categories = await get_categories()
+        categories = run_async(get_categories())
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("choose_category", lang),
             reply_markup=categories_keyboard(categories, lang)
         )
 
     @bot.message_handler(func=lambda m: m.text in ["💰 Услуги и цены", "💰 Services & Prices"])
-    async def show_services_catalog(message: Message):
+    def show_services_catalog(message: Message):
         """Show all services."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         if not user:
-            await bot.send_message(message.chat.id, "Please /start first")
+            bot.send_message(message.chat.id, "Please /start first")
             return
 
         lang = user['language']
-        categories = await get_categories()
+        categories = run_async(get_categories())
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("choose_category", lang),
             reply_markup=categories_keyboard(categories, lang)
         )
 
     @bot.message_handler(func=lambda m: m.text in ["📖 Мои записи", "📖 My Bookings"])
-    async def show_my_bookings(message: Message):
+    def show_my_bookings(message: Message):
         """Show user's bookings."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         if not user:
-            await bot.send_message(message.chat.id, "Please /start first")
+            bot.send_message(message.chat.id, "Please /start first")
             return
 
         lang = user['language']
-        appointments = await get_appointments(client_id=user['id'], upcoming_only=True)
+        appointments = run_async(get_appointments(client_id=user['id'], upcoming_only=True))
 
         if not appointments:
-            await bot.send_message(message.chat.id, get_text("no_bookings", lang))
+            bot.send_message(message.chat.id, get_text("no_bookings", lang))
             return
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("your_bookings", lang),
             reply_markup=my_bookings_keyboard(appointments, lang)
         )
 
     @bot.message_handler(func=lambda m: m.text in ["📞 Контакты", "📞 Contacts"])
-    async def show_contacts(message: Message):
+    def show_contacts(message: Message):
         """Show contact information."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         lang = user['language'] if user else 'ru'
 
         address = "Hurghada, Egypt"
         phone = "+20 XXX XXX XXXX"
         schedule = "Mon-Sat: 09:00 - 18:00"
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("contacts_info", lang, address=address, phone=phone, schedule=schedule)
         )
 
     @bot.message_handler(func=lambda m: m.text in ["🌐 Язык", "🌐 Language"])
-    async def change_language(message: Message):
+    def change_language(message: Message):
         """Change language."""
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("welcome", "ru"),
             reply_markup=language_keyboard()
         )
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"))
-    async def process_language_change(callback: CallbackQuery):
+    def process_language_change(callback: CallbackQuery):
         """Process language change for existing user."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         if not user:
-            await bot.answer_callback_query(callback.id)
+            bot.answer_callback_query(callback.id)
             return
 
         lang = callback.data.split(":")[1]
-        await update_user(callback.from_user.id, language=lang)
+        run_async(update_user(callback.from_user.id, language=lang))
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("main_menu", lang),
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.send_message(
+        bot.send_message(
             callback.message.chat.id,
             get_text("main_menu", lang),
             reply_markup=main_menu_keyboard(lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.message_handler(func=lambda m: m.text in ["👥 Пригласить друга", "👥 Invite Friend"])
-    async def show_referral(message: Message):
+    def show_referral(message: Message):
         """Show referral link."""
-        user = await get_user(message.from_user.id)
+        user = run_async(get_user(message.from_user.id))
         if not user:
-            await bot.send_message(message.chat.id, "Please /start first")
+            bot.send_message(message.chat.id, "Please /start first")
             return
 
         lang = user['language']
-        bot_info = await bot.get_me()
+        bot_info = bot.get_me()
         link = f"https://t.me/{bot_info.username}?start={user['referral_code']}"
 
-        await bot.send_message(
+        bot.send_message(
             message.chat.id,
             get_text("referral_info", lang, link=link, discount=REFERRAL_DISCOUNT_PERCENT)
         )
@@ -286,36 +293,36 @@ def register_handlers(bot: AsyncTeleBot):
     # ============ CATEGORIES & SERVICES ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cat:"))
-    async def show_category_services(callback: CallbackQuery):
+    def show_category_services(callback: CallbackQuery):
         """Show services in category."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         category_id = int(callback.data.split(":")[1])
         data = get_user_data(callback.from_user.id)
         data['category_id'] = category_id
 
-        services = await get_services(category_id=category_id)
+        services = run_async(get_services(category_id=category_id))
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("choose_service", lang),
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=services_keyboard(services, lang, category_id)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("srv:"))
-    async def show_service_detail(callback: CallbackQuery):
+    def show_service_detail(callback: CallbackQuery):
         """Show service details."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         service_id = int(callback.data.split(":")[1])
-        service = await get_service(service_id)
+        service = run_async(get_service(service_id))
 
         if not service:
-            await bot.answer_callback_query(callback.id, "Service not found")
+            bot.answer_callback_query(callback.id, "Service not found")
             return
 
         data = get_user_data(callback.from_user.id)
@@ -332,31 +339,31 @@ def register_handlers(bot: AsyncTeleBot):
                         price_egp=int(service['price_egp']),
                         price_usd=price_usd)
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             text,
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=service_detail_keyboard(service_id, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     # ============ BOOKING FLOW ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("book:"))
-    async def start_booking(callback: CallbackQuery):
+    def start_booking(callback: CallbackQuery):
         """Start booking process - show calendar."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         if not user:
-            await bot.answer_callback_query(callback.id, "Please /start first")
+            bot.answer_callback_query(callback.id, "Please /start first")
             return
 
         lang = user['language']
         service_id = int(callback.data.split(":")[1])
 
         # Check booking limit
-        active_count = await count_active_appointments(user['id'])
+        active_count = run_async(count_active_appointments(user['id']))
         if active_count >= MAX_ACTIVE_BOOKINGS:
-            await bot.answer_callback_query(
+            bot.answer_callback_query(
                 callback.id,
                 get_text("booking_limit", lang, count=active_count, max=MAX_ACTIVE_BOOKINGS),
                 show_alert=True
@@ -366,56 +373,56 @@ def register_handlers(bot: AsyncTeleBot):
         data = get_user_data(callback.from_user.id)
         data['service_id'] = service_id
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("choose_date", lang),
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=calendar_keyboard(lang, BOOKING_DAYS_AHEAD, service_id)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("date:"))
-    async def select_date(callback: CallbackQuery):
+    def select_date(callback: CallbackQuery):
         """Process date selection - show available times."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         parts = callback.data.split(":")
         date_str = parts[1]
         service_id = int(parts[2])
 
-        service = await get_service(service_id)
+        service = run_async(get_service(service_id))
         if not service:
-            await bot.answer_callback_query(callback.id, "Service not found")
+            bot.answer_callback_query(callback.id, "Service not found")
             return
 
         # Get available slots
-        slots = await get_available_slots(date_str, service['duration'])
+        slots = run_async(get_available_slots(date_str, service['duration']))
 
         data = get_user_data(callback.from_user.id)
         data['date'] = date_str
         data['service_id'] = service_id
 
         if not slots:
-            await bot.answer_callback_query(
+            bot.answer_callback_query(
                 callback.id,
                 get_text("no_slots", lang),
                 show_alert=True
             )
             return
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             f"{get_text('choose_time', lang)}\n📅 {format_date(date_str, lang)}",
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=time_slots_keyboard(slots, date_str, service_id, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("time|"))
-    async def select_time(callback: CallbackQuery):
+    def select_time(callback: CallbackQuery):
         """Process time selection - show confirmation."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         parts = callback.data.split("|")
@@ -423,9 +430,9 @@ def register_handlers(bot: AsyncTeleBot):
         time_str = parts[2]
         service_id = int(parts[3])
 
-        service = await get_service(service_id)
+        service = run_async(get_service(service_id))
         if not service:
-            await bot.answer_callback_query(callback.id, "Service not found")
+            bot.answer_callback_query(callback.id, "Service not found")
             return
 
         service_name = get_service_name(service, lang)
@@ -439,20 +446,20 @@ def register_handlers(bot: AsyncTeleBot):
                         time=time_str,
                         price=int(service['price_egp']))
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             text,
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=booking_confirm_keyboard(service_id, date_str, time_str, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_book|"))
-    async def confirm_booking(callback: CallbackQuery):
+    def confirm_booking(callback: CallbackQuery):
         """Confirm and create booking."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         if not user:
-            await bot.answer_callback_query(callback.id, "Please /start first")
+            bot.answer_callback_query(callback.id, "Please /start first")
             return
 
         lang = user['language']
@@ -461,23 +468,23 @@ def register_handlers(bot: AsyncTeleBot):
         date_str = parts[2]
         time_str = parts[3]
 
-        service = await get_service(service_id)
+        service = run_async(get_service(service_id))
         if not service:
-            await bot.answer_callback_query(callback.id, "Service not found")
+            bot.answer_callback_query(callback.id, "Service not found")
             return
 
         # Create appointment
-        appointment_id = await create_appointment(
+        appointment_id = run_async(create_appointment(
             client_id=user['id'],
             service_id=service_id,
             date_str=date_str,
             time_str=time_str
-        )
+        ))
 
         service_name = get_service_name(service, lang)
 
         # Notify client
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("booking_created", lang,
                      service=service_name,
                      date=format_date(date_str, lang),
@@ -488,24 +495,24 @@ def register_handlers(bot: AsyncTeleBot):
 
         # Notify master (admin)
         from bot.handlers.master import notify_master_new_booking
-        await notify_master_new_booking(bot, appointment_id)
+        notify_master_new_booking(bot, appointment_id)
 
         clear_user_data(callback.from_user.id)
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     # ============ MY BOOKINGS MANAGEMENT ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("appt:"))
-    async def show_appointment_detail(callback: CallbackQuery):
+    def show_appointment_detail(callback: CallbackQuery):
         """Show appointment details."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         appointment_id = int(callback.data.split(":")[1])
-        appt = await get_appointment(appointment_id)
+        appt = run_async(get_appointment(appointment_id))
 
         if not appt:
-            await bot.answer_callback_query(callback.id, "Appointment not found")
+            bot.answer_callback_query(callback.id, "Appointment not found")
             return
 
         service_name = appt.get(f'service_name_{lang}') or appt.get('service_name_ru')
@@ -519,68 +526,68 @@ def register_handlers(bot: AsyncTeleBot):
 
         can_cancel = appt['status'] not in ['cancelled', 'completed']
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             text,
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=appointment_detail_keyboard(appointment_id, lang, can_cancel)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel_appt:"))
-    async def request_cancel_appointment(callback: CallbackQuery):
+    def request_cancel_appointment(callback: CallbackQuery):
         """Request appointment cancellation."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         appointment_id = int(callback.data.split(":")[1])
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("confirm_cancel", lang),
             callback.message.chat.id,
             callback.message.message_id,
             reply_markup=cancel_confirm_keyboard(appointment_id, lang)
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_cancel:"))
-    async def confirm_cancel_appointment(callback: CallbackQuery):
+    def confirm_cancel_appointment(callback: CallbackQuery):
         """Confirm appointment cancellation."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         appointment_id = int(callback.data.split(":")[1])
 
-        await update_appointment(appointment_id, status='cancelled')
+        run_async(update_appointment(appointment_id, status='cancelled'))
 
-        await bot.edit_message_text(
+        bot.edit_message_text(
             get_text("booking_cancelled", lang),
             callback.message.chat.id,
             callback.message.message_id
         )
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     # ============ BACK NAVIGATION ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("back:"))
-    async def handle_back(callback: CallbackQuery):
+    def handle_back(callback: CallbackQuery):
         """Handle back navigation."""
-        user = await get_user(callback.from_user.id)
+        user = run_async(get_user(callback.from_user.id))
         lang = user['language'] if user else 'ru'
 
         target = callback.data.split(":")[1]
         data = get_user_data(callback.from_user.id)
 
         if target == "main":
-            await bot.delete_message(callback.message.chat.id, callback.message.message_id)
-            await bot.send_message(
+            bot.delete_message(callback.message.chat.id, callback.message.message_id)
+            bot.send_message(
                 callback.message.chat.id,
                 get_text("main_menu", lang),
                 reply_markup=main_menu_keyboard(lang)
             )
         elif target == "categories":
-            categories = await get_categories()
-            await bot.edit_message_text(
+            categories = run_async(get_categories())
+            bot.edit_message_text(
                 get_text("choose_category", lang),
                 callback.message.chat.id,
                 callback.message.message_id,
@@ -589,8 +596,8 @@ def register_handlers(bot: AsyncTeleBot):
         elif target == "services":
             category_id = data.get('category_id')
             if category_id:
-                services = await get_services(category_id=category_id)
-                await bot.edit_message_text(
+                services = run_async(get_services(category_id=category_id))
+                bot.edit_message_text(
                     get_text("choose_service", lang),
                     callback.message.chat.id,
                     callback.message.message_id,
@@ -599,7 +606,7 @@ def register_handlers(bot: AsyncTeleBot):
         elif target == "service_detail":
             service_id = data.get('service_id')
             if service_id:
-                service = await get_service(service_id)
+                service = run_async(get_service(service_id))
                 if service:
                     name = get_service_name(service, lang)
                     desc = service.get(f'description_{lang}') or service.get('description_ru') or ""
@@ -612,31 +619,31 @@ def register_handlers(bot: AsyncTeleBot):
                                     price_egp=int(service['price_egp']),
                                     price_usd=price_usd)
 
-                    await bot.edit_message_text(
+                    bot.edit_message_text(
                         text,
                         callback.message.chat.id,
                         callback.message.message_id,
                         reply_markup=service_detail_keyboard(service_id, lang)
                     )
         elif target == "my_bookings":
-            appointments = await get_appointments(client_id=user['id'], upcoming_only=True)
+            appointments = run_async(get_appointments(client_id=user['id'], upcoming_only=True))
             if appointments:
-                await bot.edit_message_text(
+                bot.edit_message_text(
                     get_text("your_bookings", lang),
                     callback.message.chat.id,
                     callback.message.message_id,
                     reply_markup=my_bookings_keyboard(appointments, lang)
                 )
             else:
-                await bot.edit_message_text(
+                bot.edit_message_text(
                     get_text("no_bookings", lang),
                     callback.message.chat.id,
                     callback.message.message_id
                 )
 
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)
 
     @bot.callback_query_handler(func=lambda c: c.data == "noop")
-    async def noop_callback(callback: CallbackQuery):
+    def noop_callback(callback: CallbackQuery):
         """Handle no-operation callbacks."""
-        await bot.answer_callback_query(callback.id)
+        bot.answer_callback_query(callback.id)

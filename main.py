@@ -5,19 +5,19 @@ Telegram bot for appointment booking and management.
 Usage:
     python main.py
 """
-import asyncio
 import logging
 import sys
 import os
+import asyncio
 
-from telebot.async_telebot import AsyncTeleBot
-from telebot.asyncio_storage import StateMemoryStorage
+import telebot
+from telebot.handler_backends import State, StatesGroup
+from telebot.storage import StateMemoryStorage
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import BOT_TOKEN
-from database import init_db, create_demo_data
 from bot.scheduler import setup_scheduler, stop_scheduler
 
 # Configure logging
@@ -28,7 +28,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def main():
+def run_async(coro):
+    """Run async function in sync context."""
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(coro)
+
+
+def main():
     """Main function to start the bot."""
     # Check token
     if not BOT_TOKEN:
@@ -37,15 +43,16 @@ async def main():
 
     # Initialize database
     logger.info("Initializing database...")
-    await init_db()
+    from database import init_db, create_demo_data
+    run_async(init_db())
 
     # Create demo data if needed
     logger.info("Creating demo data...")
-    await create_demo_data()
+    run_async(create_demo_data())
 
     # Initialize bot with state storage
     state_storage = StateMemoryStorage()
-    bot = AsyncTeleBot(BOT_TOKEN, parse_mode="HTML", state_storage=state_storage)
+    bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML", state_storage=state_storage)
 
     # Register handlers
     from bot.handlers import client, master
@@ -58,13 +65,13 @@ async def main():
     # Start polling
     logger.info("Bot starting...")
     try:
-        await bot.infinity_polling()
+        bot.infinity_polling()
     finally:
         stop_scheduler()
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
