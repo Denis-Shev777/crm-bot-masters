@@ -1,5 +1,6 @@
 """Client handlers for the bot."""
 import asyncio
+import logging
 import telebot
 from telebot.types import Message, CallbackQuery
 from telebot.handler_backends import State, StatesGroup
@@ -20,11 +21,16 @@ from bot.keyboards.client import (
 from bot.utils import get_available_slots, format_date
 from config import MAX_ACTIVE_BOOKINGS, BOOKING_DAYS_AHEAD, ADMIN_IDS, REFERRAL_DISCOUNT_PERCENT
 
+logger = logging.getLogger(__name__)
+
 
 def run_async(coro):
     """Run async function in sync context."""
     try:
         loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -61,14 +67,151 @@ def clear_user_data(user_id: int):
         del user_data[user_id]
 
 
-def register_handlers(bot: telebot.TeleBot):
-    """Register all client handlers."""
+# Menu button texts for both languages
+MENU_BUTTONS_RU = [
+    "📅 Записаться", "📖 Мои записи", "💰 Услуги и цены",
+    "📞 Контакты", "🌐 Язык", "👥 Пригласить друга", "« Назад"
+]
+MENU_BUTTONS_EN = [
+    "📅 Book Now", "📖 My Bookings", "💰 Services & Prices",
+    "📞 Contacts", "🌐 Language", "👥 Invite Friend", "« Back"
+]
+ALL_MENU_BUTTONS = MENU_BUTTONS_RU + MENU_BUTTONS_EN
 
-    # ============ START & REGISTRATION ============
+
+def is_menu_button(text: str) -> bool:
+    """Check if text is a menu button."""
+    return text in ALL_MENU_BUTTONS
+
+
+def register_handlers(bot: telebot.TeleBot):
+    """Register all client handlers.
+
+    IMPORTANT: Handler registration order matters in pyTelegramBotAPI!
+    - State handlers must be registered BEFORE generic text handlers
+    - More specific handlers should come before generic ones
+    - The first matching handler wins
+    """
+
+    # ============================================================
+    # SECTION 1: STATE HANDLERS (must be registered FIRST!)
+    # These handle user input during registration/forms
+    # ============================================================
+
+    @bot.message_handler(state=Registration.name, content_types=['text'])
+    def process_name(message: Message):
+        """Process name input during registration."""
+        logger.info(f"Processing name for user {message.from_user.id}: {message.text}")
+
+        # Ignore if user clicks a menu button during registration
+        if is_menu_button(message.text):
+            data = get_user_data(message.from_user.id)
+            lang = data.get('language', 'ru')
+            bot.send_message(
+                message.chat.id,
+                get_text("ask_name", lang)
+            )
+            return
+
+        data = get_user_data(message.from_user.id)
+        lang = data.get('language', 'ru')
+        data['name'] = message.text.strip()
+
+        logger.info(f"Name saved: {data['name']}, asking for phone")
+
+        bot.send_message(
+            message.chat.id,
+            get_text("ask_phone", lang),
+            reply_markup=phone_keyboard(lang)
+        )
+        bot.set_state(message.from_user.id, Registration.phone, message.chat.id)
+
+    @bot.message_handler(state=Registration.phone, content_types=['contact'])
+    def process_phone_contact(message: Message):
+        """Process phone from contact button."""
+        logger.info(f"Processing phone contact for user {message.from_user.id}")
+
+        data = get_user_data(message.from_user.id)
+        lang = data.get('language', 'ru')
+        name = data.get('name', 'User')
+        phone = message.contact.phone_number
+        referral_code = data.get('referral_code')
+
+        logger.info(f"Creating user: name={name}, phone={phone}")
+
+        run_async(create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            name=name,
+            phone=phone,
+            language=lang,
+            referral_code=referral_code
+        ))
+
+        clear_user_data(message.from_user.id)
+        bot.delete_state(message.from_user.id, message.chat.id)
+
+        logger.info(f"Registration complete for user {message.from_user.id}")
+
+        bot.send_message(
+            message.chat.id,
+            get_text("registration_complete", lang, name=name),
+            reply_markup=main_menu_keyboard(lang)
+        )
+
+    @bot.message_handler(state=Registration.phone, content_types=['text'])
+    def process_phone_text(message: Message):
+        """Process phone from text input."""
+        logger.info(f"Processing phone text for user {message.from_user.id}: {message.text}")
+
+        # Ignore menu buttons
+        if is_menu_button(message.text):
+            data = get_user_data(message.from_user.id)
+            lang = data.get('language', 'ru')
+            bot.send_message(
+                message.chat.id,
+                get_text("ask_phone", lang),
+                reply_markup=phone_keyboard(lang)
+            )
+            return
+
+        data = get_user_data(message.from_user.id)
+        lang = data.get('language', 'ru')
+        name = data.get('name', 'User')
+        phone = message.text.strip()
+        referral_code = data.get('referral_code')
+
+        logger.info(f"Creating user: name={name}, phone={phone}")
+
+        run_async(create_user(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            name=name,
+            phone=phone,
+            language=lang,
+            referral_code=referral_code
+        ))
+
+        clear_user_data(message.from_user.id)
+        bot.delete_state(message.from_user.id, message.chat.id)
+
+        logger.info(f"Registration complete for user {message.from_user.id}")
+
+        bot.send_message(
+            message.chat.id,
+            get_text("registration_complete", lang, name=name),
+            reply_markup=main_menu_keyboard(lang)
+        )
+
+    # ============================================================
+    # SECTION 2: COMMAND HANDLERS
+    # ============================================================
 
     @bot.message_handler(commands=['start'])
     def cmd_start(message: Message):
         """Handle /start command."""
+        logger.info(f"/start from user {message.from_user.id}")
+
         user = run_async(get_user(message.from_user.id))
 
         # Check for referral code in deep link
@@ -77,9 +220,11 @@ def register_handlers(bot: telebot.TeleBot):
             referral_code = message.text.split()[1]
             data = get_user_data(message.from_user.id)
             data['referral_code'] = referral_code
+            logger.info(f"Referral code: {referral_code}")
 
         if user:
             # Existing user - show main menu
+            logger.info(f"Existing user, showing main menu")
             bot.send_message(
                 message.chat.id,
                 get_text("main_menu", user['language']),
@@ -87,6 +232,7 @@ def register_handlers(bot: telebot.TeleBot):
             )
         else:
             # New user - start registration
+            logger.info(f"New user, starting registration")
             bot.send_message(
                 message.chat.id,
                 get_text("welcome", "ru"),
@@ -94,22 +240,30 @@ def register_handlers(bot: telebot.TeleBot):
             )
             bot.set_state(message.from_user.id, Registration.language, message.chat.id)
 
+    # ============================================================
+    # SECTION 3: CALLBACK QUERY HANDLERS
+    # ============================================================
+
     @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"))
     def process_language(callback: CallbackQuery):
         """Process language selection (registration or change)."""
         lang = callback.data.split(":")[1]
         user = run_async(get_user(callback.from_user.id))
 
+        logger.info(f"Language selected: {lang}, existing_user: {user is not None}")
+
         if not user:
             # New user - registration flow
             data = get_user_data(callback.from_user.id)
             data['language'] = lang
+
             bot.edit_message_text(
                 get_text("ask_name", lang),
                 callback.message.chat.id,
                 callback.message.message_id
             )
             bot.set_state(callback.from_user.id, Registration.name, callback.message.chat.id)
+            logger.info(f"State set to Registration.name for user {callback.from_user.id}")
         else:
             # Existing user - change language
             run_async(update_user(callback.from_user.id, language=lang))
@@ -124,171 +278,6 @@ def register_handlers(bot: telebot.TeleBot):
                 reply_markup=main_menu_keyboard(lang)
             )
         bot.answer_callback_query(callback.id)
-
-    @bot.message_handler(state=Registration.name)
-    def process_name(message: Message):
-        """Process name input."""
-        data = get_user_data(message.from_user.id)
-        lang = data.get('language', 'ru')
-        data['name'] = message.text
-        bot.send_message(
-            message.chat.id,
-            get_text("ask_phone", lang),
-            reply_markup=phone_keyboard(lang)
-        )
-        bot.set_state(message.from_user.id, Registration.phone, message.chat.id)
-
-    @bot.message_handler(content_types=['contact'], state=Registration.phone)
-    def process_phone_contact(message: Message):
-        """Process phone from contact."""
-        data = get_user_data(message.from_user.id)
-        lang = data.get('language', 'ru')
-        name = data.get('name')
-        phone = message.contact.phone_number
-        referral_code = data.get('referral_code')
-
-        run_async(create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            name=name,
-            phone=phone,
-            language=lang,
-            referral_code=referral_code
-        ))
-
-        clear_user_data(message.from_user.id)
-        bot.delete_state(message.from_user.id, message.chat.id)
-        bot.send_message(
-            message.chat.id,
-            get_text("registration_complete", lang, name=name),
-            reply_markup=main_menu_keyboard(lang)
-        )
-
-    @bot.message_handler(state=Registration.phone)
-    def process_phone_text(message: Message):
-        """Process phone from text."""
-        data = get_user_data(message.from_user.id)
-        lang = data.get('language', 'ru')
-        name = data.get('name')
-        phone = message.text
-        referral_code = data.get('referral_code')
-
-        run_async(create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            name=name,
-            phone=phone,
-            language=lang,
-            referral_code=referral_code
-        ))
-
-        clear_user_data(message.from_user.id)
-        bot.delete_state(message.from_user.id, message.chat.id)
-        bot.send_message(
-            message.chat.id,
-            get_text("registration_complete", lang, name=name),
-            reply_markup=main_menu_keyboard(lang)
-        )
-
-    # ============ MAIN MENU ============
-
-    @bot.message_handler(func=lambda m: m.text in ["📅 Записаться", "📅 Book Now"])
-    def show_categories(message: Message):
-        """Show service categories."""
-        user = run_async(get_user(message.from_user.id))
-        if not user:
-            bot.send_message(message.chat.id, "Please /start first")
-            return
-
-        lang = user['language']
-        categories = run_async(get_categories())
-
-        bot.send_message(
-            message.chat.id,
-            get_text("choose_category", lang),
-            reply_markup=categories_keyboard(categories, lang)
-        )
-
-    @bot.message_handler(func=lambda m: m.text in ["💰 Услуги и цены", "💰 Services & Prices"])
-    def show_services_catalog(message: Message):
-        """Show all services."""
-        user = run_async(get_user(message.from_user.id))
-        if not user:
-            bot.send_message(message.chat.id, "Please /start first")
-            return
-
-        lang = user['language']
-        categories = run_async(get_categories())
-
-        bot.send_message(
-            message.chat.id,
-            get_text("choose_category", lang),
-            reply_markup=categories_keyboard(categories, lang)
-        )
-
-    @bot.message_handler(func=lambda m: m.text in ["📖 Мои записи", "📖 My Bookings"])
-    def show_my_bookings(message: Message):
-        """Show user's bookings."""
-        user = run_async(get_user(message.from_user.id))
-        if not user:
-            bot.send_message(message.chat.id, "Please /start first")
-            return
-
-        lang = user['language']
-        appointments = run_async(get_appointments(client_id=user['id'], upcoming_only=True))
-
-        if not appointments:
-            bot.send_message(message.chat.id, get_text("no_bookings", lang))
-            return
-
-        bot.send_message(
-            message.chat.id,
-            get_text("your_bookings", lang),
-            reply_markup=my_bookings_keyboard(appointments, lang)
-        )
-
-    @bot.message_handler(func=lambda m: m.text in ["📞 Контакты", "📞 Contacts"])
-    def show_contacts(message: Message):
-        """Show contact information."""
-        user = run_async(get_user(message.from_user.id))
-        lang = user['language'] if user else 'ru'
-
-        address = "Hurghada, Egypt"
-        phone = "+20 XXX XXX XXXX"
-        schedule = "Mon-Sat: 09:00 - 18:00"
-
-        bot.send_message(
-            message.chat.id,
-            get_text("contacts_info", lang, address=address, phone=phone, schedule=schedule)
-        )
-
-    @bot.message_handler(func=lambda m: m.text in ["🌐 Язык", "🌐 Language"])
-    def change_language(message: Message):
-        """Change language."""
-        bot.send_message(
-            message.chat.id,
-            get_text("welcome", "ru"),
-            reply_markup=language_keyboard()
-        )
-
-    @bot.message_handler(func=lambda m: m.text in ["👥 Пригласить друга", "👥 Invite Friend"])
-    def show_referral(message: Message):
-        """Show referral link."""
-        user = run_async(get_user(message.from_user.id))
-        if not user:
-            bot.send_message(message.chat.id, "Please /start first")
-            return
-
-        lang = user['language']
-        bot_info = bot.get_me()
-        link = f"https://t.me/{bot_info.username}?start={user['referral_code']}"
-
-        bot.send_message(
-            message.chat.id,
-            get_text("referral_info", lang, link=link, discount=REFERRAL_DISCOUNT_PERCENT)
-        )
-
-    # ============ CATEGORIES & SERVICES ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cat:"))
     def show_category_services(callback: CallbackQuery):
@@ -344,8 +333,6 @@ def register_handlers(bot: telebot.TeleBot):
             reply_markup=service_detail_keyboard(service_id, lang)
         )
         bot.answer_callback_query(callback.id)
-
-    # ============ BOOKING FLOW ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("book:"))
     def start_booking(callback: CallbackQuery):
@@ -498,8 +485,6 @@ def register_handlers(bot: telebot.TeleBot):
         clear_user_data(callback.from_user.id)
         bot.answer_callback_query(callback.id)
 
-    # ============ MY BOOKINGS MANAGEMENT ============
-
     @bot.callback_query_handler(func=lambda c: c.data.startswith("appt:"))
     def show_appointment_detail(callback: CallbackQuery):
         """Show appointment details."""
@@ -564,8 +549,6 @@ def register_handlers(bot: telebot.TeleBot):
             callback.message.message_id
         )
         bot.answer_callback_query(callback.id)
-
-    # ============ BACK NAVIGATION ============
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("back:"))
     def handle_back(callback: CallbackQuery):
@@ -645,3 +628,106 @@ def register_handlers(bot: telebot.TeleBot):
     def noop_callback(callback: CallbackQuery):
         """Handle no-operation callbacks."""
         bot.answer_callback_query(callback.id)
+
+    # ============================================================
+    # SECTION 4: MAIN MENU TEXT BUTTON HANDLERS
+    # These must come AFTER state handlers!
+    # ============================================================
+
+    @bot.message_handler(func=lambda m: m.text in ["📅 Записаться", "📅 Book Now"])
+    def show_categories(message: Message):
+        """Show service categories."""
+        user = run_async(get_user(message.from_user.id))
+        if not user:
+            bot.send_message(message.chat.id, "Please /start first")
+            return
+
+        lang = user['language']
+        categories = run_async(get_categories())
+
+        bot.send_message(
+            message.chat.id,
+            get_text("choose_category", lang),
+            reply_markup=categories_keyboard(categories, lang)
+        )
+
+    @bot.message_handler(func=lambda m: m.text in ["💰 Услуги и цены", "💰 Services & Prices"])
+    def show_services_catalog(message: Message):
+        """Show all services."""
+        user = run_async(get_user(message.from_user.id))
+        if not user:
+            bot.send_message(message.chat.id, "Please /start first")
+            return
+
+        lang = user['language']
+        categories = run_async(get_categories())
+
+        bot.send_message(
+            message.chat.id,
+            get_text("choose_category", lang),
+            reply_markup=categories_keyboard(categories, lang)
+        )
+
+    @bot.message_handler(func=lambda m: m.text in ["📖 Мои записи", "📖 My Bookings"])
+    def show_my_bookings(message: Message):
+        """Show user's bookings."""
+        user = run_async(get_user(message.from_user.id))
+        if not user:
+            bot.send_message(message.chat.id, "Please /start first")
+            return
+
+        lang = user['language']
+        appointments = run_async(get_appointments(client_id=user['id'], upcoming_only=True))
+
+        if not appointments:
+            bot.send_message(message.chat.id, get_text("no_bookings", lang))
+            return
+
+        bot.send_message(
+            message.chat.id,
+            get_text("your_bookings", lang),
+            reply_markup=my_bookings_keyboard(appointments, lang)
+        )
+
+    @bot.message_handler(func=lambda m: m.text in ["📞 Контакты", "📞 Contacts"])
+    def show_contacts(message: Message):
+        """Show contact information."""
+        user = run_async(get_user(message.from_user.id))
+        lang = user['language'] if user else 'ru'
+
+        address = "Hurghada, Egypt"
+        phone = "+20 XXX XXX XXXX"
+        schedule = "Mon-Sat: 09:00 - 18:00"
+
+        bot.send_message(
+            message.chat.id,
+            get_text("contacts_info", lang, address=address, phone=phone, schedule=schedule)
+        )
+
+    @bot.message_handler(func=lambda m: m.text in ["🌐 Язык", "🌐 Language"])
+    def change_language(message: Message):
+        """Change language."""
+        bot.send_message(
+            message.chat.id,
+            get_text("welcome", "ru"),
+            reply_markup=language_keyboard()
+        )
+
+    @bot.message_handler(func=lambda m: m.text in ["👥 Пригласить друга", "👥 Invite Friend"])
+    def show_referral(message: Message):
+        """Show referral link."""
+        user = run_async(get_user(message.from_user.id))
+        if not user:
+            bot.send_message(message.chat.id, "Please /start first")
+            return
+
+        lang = user['language']
+        bot_info = bot.get_me()
+        link = f"https://t.me/{bot_info.username}?start={user['referral_code']}"
+
+        bot.send_message(
+            message.chat.id,
+            get_text("referral_info", lang, link=link, discount=REFERRAL_DISCOUNT_PERCENT)
+        )
+
+    logger.info("Client handlers registered successfully")

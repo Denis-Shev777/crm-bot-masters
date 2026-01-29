@@ -11,6 +11,7 @@ import os
 import asyncio
 
 import telebot
+from telebot import custom_filters
 from telebot.handler_backends import State, StatesGroup
 from telebot.storage import StateMemoryStorage
 
@@ -30,7 +31,14 @@ logger = logging.getLogger(__name__)
 
 def run_async(coro):
     """Run async function in sync context."""
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     return loop.run_until_complete(coro)
 
 
@@ -54,16 +62,28 @@ def main():
     state_storage = StateMemoryStorage()
     bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML", state_storage=state_storage)
 
-    # Register handlers
+    # CRITICAL: Add custom filters for state handling
+    # Without StateFilter, state-based handlers will NOT work!
+    bot.add_custom_filter(custom_filters.StateFilter(bot))
+    bot.add_custom_filter(custom_filters.TextMatchFilter())
+    bot.add_custom_filter(custom_filters.IsDigitFilter())
+
+    # Register handlers - ORDER MATTERS!
+    # Master handlers first (so /master command works)
+    # Then client handlers
     from bot.handlers import client, master
-    client.register_handlers(bot)
+
+    # Register master handlers first (they have specific commands/buttons)
     master.register_handlers(bot)
+    # Register client handlers (includes registration flow)
+    client.register_handlers(bot)
 
     # Setup scheduler for reminders
     setup_scheduler(bot)
 
     # Start polling
     logger.info("Bot starting...")
+    logger.info("Custom filters registered: StateFilter, TextMatchFilter, IsDigitFilter")
     try:
         bot.infinity_polling()
     finally:
