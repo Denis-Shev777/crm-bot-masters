@@ -10,16 +10,14 @@ import logging
 import sys
 import os
 
-from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
+from telebot.async_telebot import AsyncTeleBot
+from telebot.asyncio_storage import StateMemoryStorage
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import BOT_TOKEN
 from database import init_db, create_demo_data
-from bot.handlers import client, master
 from bot.scheduler import setup_scheduler, stop_scheduler
 
 # Configure logging
@@ -45,16 +43,14 @@ async def main():
     logger.info("Creating demo data...")
     await create_demo_data()
 
-    # Initialize bot and dispatcher
-    bot = Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
-    dp = Dispatcher()
+    # Initialize bot with state storage
+    state_storage = StateMemoryStorage()
+    bot = AsyncTeleBot(BOT_TOKEN, parse_mode="HTML", state_storage=state_storage)
 
-    # Register routers
-    dp.include_router(client.router)
-    dp.include_router(master.router)
+    # Register handlers
+    from bot.handlers import client, master
+    client.register_handlers(bot)
+    master.register_handlers(bot)
 
     # Setup scheduler for reminders
     setup_scheduler(bot)
@@ -62,10 +58,9 @@ async def main():
     # Start polling
     logger.info("Bot starting...")
     try:
-        await dp.start_polling(bot)
+        await bot.infinity_polling()
     finally:
         stop_scheduler()
-        await bot.session.close()
 
 
 if __name__ == "__main__":

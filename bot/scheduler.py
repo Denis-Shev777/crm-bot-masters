@@ -5,7 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import pytz
 
-from aiogram import Bot
+from telebot.async_telebot import AsyncTeleBot
 
 from config import TIMEZONE, REMINDER_HOURS
 from database import get_user, mark_reminder_sent
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
 
-async def send_reminders(bot: Bot):
+async def send_reminders(bot: AsyncTeleBot):
     """Send appointment reminders."""
     import aiosqlite
     from config import DATABASE_PATH
@@ -72,7 +72,7 @@ async def send_reminders(bot: Bot):
                     logger.error(f"Failed to send reminder: {e}")
 
 
-async def request_reviews(bot: Bot):
+async def request_reviews(bot: AsyncTeleBot):
     """Request reviews for completed appointments."""
     import aiosqlite
     from config import DATABASE_PATH
@@ -114,7 +114,7 @@ async def request_reviews(bot: Bot):
                 logger.error(f"Failed to request review: {e}")
 
 
-def setup_scheduler(bot: Bot):
+def setup_scheduler(bot: AsyncTeleBot):
     """Setup and start the scheduler."""
     # Send reminders every 30 minutes
     scheduler.add_job(

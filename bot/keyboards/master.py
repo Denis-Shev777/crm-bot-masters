@@ -1,37 +1,36 @@
-from aiogram.types import (
+from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton
 )
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from datetime import datetime, timedelta
 from locales import get_text
 
 
 def master_menu_keyboard(lang: str) -> ReplyKeyboardMarkup:
     """Master panel main menu."""
-    builder = ReplyKeyboardBuilder()
-    builder.row(
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(
         KeyboardButton(text=get_text("btn_today", lang)),
         KeyboardButton(text=get_text("btn_calendar", lang))
     )
-    builder.row(
+    markup.row(
         KeyboardButton(text=get_text("btn_settings", lang)),
         KeyboardButton(text=get_text("btn_block_slot", lang))
     )
-    builder.row(
+    markup.row(
         KeyboardButton(text=get_text("btn_stats", lang)),
         KeyboardButton(text=get_text("btn_broadcast", lang))
     )
-    builder.row(
+    markup.row(
         KeyboardButton(text=get_text("back", lang))
     )
-    return builder.as_markup(resize_keyboard=True)
+    return markup
 
 
 def appointment_actions_keyboard(appointment_id: int, lang: str, client_telegram_id: int = None) -> InlineKeyboardMarkup:
     """Actions for appointment management."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
+    markup = InlineKeyboardMarkup()
+    markup.row(
         InlineKeyboardButton(
             text=get_text("btn_confirm_booking", lang),
             callback_data=f"m_confirm:{appointment_id}"
@@ -42,20 +41,20 @@ def appointment_actions_keyboard(appointment_id: int, lang: str, client_telegram
         )
     )
     if client_telegram_id:
-        builder.row(InlineKeyboardButton(
+        markup.row(InlineKeyboardButton(
             text=get_text("btn_contact_client", lang),
             url=f"tg://user?id={client_telegram_id}"
         ))
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text="✔️ Выполнено / Done",
         callback_data=f"m_complete:{appointment_id}"
     ))
-    return builder.as_markup()
+    return markup
 
 
 def master_calendar_keyboard(lang: str, days: int = 7) -> InlineKeyboardMarkup:
     """Master calendar for viewing appointments."""
-    builder = InlineKeyboardBuilder()
+    markup = InlineKeyboardMarkup()
     today = datetime.now()
 
     row = []
@@ -73,41 +72,41 @@ def master_calendar_keyboard(lang: str, days: int = 7) -> InlineKeyboardMarkup:
         ))
 
         if len(row) == 3:
-            builder.row(*row)
+            markup.row(*row)
             row = []
 
     if row:
-        builder.row(*row)
+        markup.row(*row)
 
     # Navigation
-    builder.row(
+    markup.row(
         InlineKeyboardButton(text="« Prev week", callback_data="m_cal:prev"),
         InlineKeyboardButton(text="Next week »", callback_data="m_cal:next")
     )
-    return builder.as_markup()
+    return markup
 
 
 def schedule_settings_keyboard(lang: str) -> InlineKeyboardMarkup:
     """Schedule settings keyboard."""
     days = ["Пн/Mo", "Вт/Tu", "Ср/We", "Чт/Th", "Пт/Fr", "Сб/Sa", "Вс/Su"]
-    builder = InlineKeyboardBuilder()
+    markup = InlineKeyboardMarkup()
 
     for i, day in enumerate(days):
-        builder.row(InlineKeyboardButton(
+        markup.row(InlineKeyboardButton(
             text=day,
             callback_data=f"m_sched:{i}"
         ))
 
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text=get_text("back", lang),
         callback_data="m_back:main"
     ))
-    return builder.as_markup()
+    return markup
 
 
 def block_slot_calendar_keyboard(lang: str, days: int = 14) -> InlineKeyboardMarkup:
     """Calendar for blocking slots."""
-    builder = InlineKeyboardBuilder()
+    markup = InlineKeyboardMarkup()
     today = datetime.now()
 
     row = []
@@ -122,54 +121,54 @@ def block_slot_calendar_keyboard(lang: str, days: int = 14) -> InlineKeyboardMar
         ))
 
         if len(row) == 4:
-            builder.row(*row)
+            markup.row(*row)
             row = []
 
     if row:
-        builder.row(*row)
+        markup.row(*row)
 
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text=get_text("back", lang),
         callback_data="m_back:main"
     ))
-    return builder.as_markup()
+    return markup
 
 
 def block_type_keyboard(date_str: str, lang: str) -> InlineKeyboardMarkup:
     """Block full day or specific time."""
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton(
         text="🚫 Весь день / Full day",
         callback_data=f"m_block_full:{date_str}"
     ))
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text="🕐 Выбрать время / Select time",
         callback_data=f"m_block_time:{date_str}"
     ))
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text=get_text("back", lang),
         callback_data="m_back:block"
     ))
-    return builder.as_markup()
+    return markup
 
 
 def stats_period_keyboard(lang: str) -> InlineKeyboardMarkup:
     """Statistics period selection."""
-    builder = InlineKeyboardBuilder()
-    builder.row(
+    markup = InlineKeyboardMarkup()
+    markup.row(
         InlineKeyboardButton(text="7 дней / days", callback_data="m_stats:7"),
         InlineKeyboardButton(text="30 дней / days", callback_data="m_stats:30")
     )
-    builder.row(
+    markup.row(
         InlineKeyboardButton(text="90 дней / days", callback_data="m_stats:90"),
         InlineKeyboardButton(text="Всё / All", callback_data="m_stats:365")
     )
-    return builder.as_markup()
+    return markup
 
 
 def block_time_slots_keyboard(date_str: str, lang: str) -> InlineKeyboardMarkup:
     """Time slots for blocking specific hours."""
-    builder = InlineKeyboardBuilder()
+    markup = InlineKeyboardMarkup()
 
     # Generate time slots from 09:00 to 18:00
     times = []
@@ -184,14 +183,14 @@ def block_time_slots_keyboard(date_str: str, lang: str) -> InlineKeyboardMarkup:
             callback_data=f"m_block_slot|{date_str}|{time_slot}"
         ))
         if len(row) == 4:
-            builder.row(*row)
+            markup.row(*row)
             row = []
 
     if row:
-        builder.row(*row)
+        markup.row(*row)
 
-    builder.row(InlineKeyboardButton(
+    markup.row(InlineKeyboardButton(
         text=get_text("back", lang),
         callback_data=f"m_block_day:{date_str}"
     ))
-    return builder.as_markup()
+    return markup
