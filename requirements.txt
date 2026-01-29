@@ -1,4 +1,4 @@
-aiogram
+pyTelegramBotAPI
 aiosqlite
 apscheduler
 python-dotenv
