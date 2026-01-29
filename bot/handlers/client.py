@@ -94,18 +94,35 @@ def register_handlers(bot: telebot.TeleBot):
             )
             bot.set_state(message.from_user.id, Registration.language, message.chat.id)
 
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"), state=Registration.language)
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"))
     def process_language(callback: CallbackQuery):
-        """Process language selection during registration."""
+        """Process language selection (registration or change)."""
         lang = callback.data.split(":")[1]
-        data = get_user_data(callback.from_user.id)
-        data['language'] = lang
-        bot.edit_message_text(
-            get_text("ask_name", lang),
-            callback.message.chat.id,
-            callback.message.message_id
-        )
-        bot.set_state(callback.from_user.id, Registration.name, callback.message.chat.id)
+        user = run_async(get_user(callback.from_user.id))
+
+        if not user:
+            # New user - registration flow
+            data = get_user_data(callback.from_user.id)
+            data['language'] = lang
+            bot.edit_message_text(
+                get_text("ask_name", lang),
+                callback.message.chat.id,
+                callback.message.message_id
+            )
+            bot.set_state(callback.from_user.id, Registration.name, callback.message.chat.id)
+        else:
+            # Existing user - change language
+            run_async(update_user(callback.from_user.id, language=lang))
+            bot.edit_message_text(
+                get_text("language_changed", lang) if get_text("language_changed", lang) != "language_changed" else f"Language: {lang}",
+                callback.message.chat.id,
+                callback.message.message_id
+            )
+            bot.send_message(
+                callback.message.chat.id,
+                get_text("main_menu", lang),
+                reply_markup=main_menu_keyboard(lang)
+            )
         bot.answer_callback_query(callback.id)
 
     @bot.message_handler(state=Registration.name)
@@ -253,29 +270,6 @@ def register_handlers(bot: telebot.TeleBot):
             get_text("welcome", "ru"),
             reply_markup=language_keyboard()
         )
-
-    @bot.callback_query_handler(func=lambda c: c.data.startswith("lang:"))
-    def process_language_change(callback: CallbackQuery):
-        """Process language change for existing user."""
-        user = run_async(get_user(callback.from_user.id))
-        if not user:
-            bot.answer_callback_query(callback.id)
-            return
-
-        lang = callback.data.split(":")[1]
-        run_async(update_user(callback.from_user.id, language=lang))
-
-        bot.edit_message_text(
-            get_text("main_menu", lang),
-            callback.message.chat.id,
-            callback.message.message_id
-        )
-        bot.send_message(
-            callback.message.chat.id,
-            get_text("main_menu", lang),
-            reply_markup=main_menu_keyboard(lang)
-        )
-        bot.answer_callback_query(callback.id)
 
     @bot.message_handler(func=lambda m: m.text in ["👥 Пригласить друга", "👥 Invite Friend"])
     def show_referral(message: Message):
