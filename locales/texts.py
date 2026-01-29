@@ -36,7 +36,7 @@ TEXTS = {
         "choose_time": "Выберите время:",
         "no_slots": "К сожалению, на эту дату нет свободных слотов.",
         "booking_confirm": "Подтвердите запись:\n\n📋 Услуга: {service}\n📅 Дата: {date}\n🕐 Время: {time}\n💵 Стоимость: {price} EGP",
-        "booking_created": "✅ Запись создана!\n\n📋 {service}\n📅 {date} в {time}\n\nМы отправим напоминание за день до визита.",
+        "booking_created": "✅ Запись создана!\n\n📋 {service}\n📅 {date} в {time}\n\n⏳ Ожидайте подтверждения от мастера.\nМы отправим напоминание за день до визита.",
         "booking_limit": "У вас уже {count} активных записей. Максимум - {max}.",
 
         # My bookings
@@ -135,7 +135,7 @@ TEXTS = {
         "choose_time": "Choose time:",
         "no_slots": "Sorry, no available slots on this date.",
         "booking_confirm": "Confirm your booking:\n\n📋 Service: {service}\n📅 Date: {date}\n🕐 Time: {time}\n💵 Price: {price} EGP",
-        "booking_created": "✅ Booking confirmed!\n\n📋 {service}\n📅 {date} at {time}\n\nWe'll send you a reminder before your visit.",
+        "booking_created": "✅ Booking created!\n\n📋 {service}\n📅 {date} at {time}\n\n⏳ Please wait for confirmation from the master.\nWe'll send you a reminder before your visit.",
         "booking_limit": "You have {count} active bookings. Maximum is {max}.",
 
         # My bookings

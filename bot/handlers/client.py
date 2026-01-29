@@ -404,7 +404,7 @@ async def select_time(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("confirm_book:"))
+@router.callback_query(F.data.startswith("confirm_book|"))
 async def confirm_booking(callback: CallbackQuery, state: FSMContext):
     """Confirm and create booking."""
     user = await get_user(callback.from_user.id)
@@ -413,7 +413,7 @@ async def confirm_booking(callback: CallbackQuery, state: FSMContext):
         return
 
     lang = user['language']
-    parts = callback.data.split(":")
+    parts = callback.data.split("|")
     service_id = int(parts[1])
     date_str = parts[2]
     time_str = parts[3]

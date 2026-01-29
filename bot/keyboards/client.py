@@ -162,7 +162,7 @@ def booking_confirm_keyboard(service_id: int, date_str: str, time_str: str, lang
     builder.row(
         InlineKeyboardButton(
             text=f"✅ {get_text('confirm', lang)}",
-            callback_data=f"confirm_book:{service_id}:{date_str}:{time_str}"
+            callback_data=f"confirm_book|{service_id}|{date_str}|{time_str}"
         ),
         InlineKeyboardButton(
             text=f"❌ {get_text('cancel', lang)}",
