@@ -15,7 +15,8 @@ from locales import get_text, get_status_text
 from bot.keyboards.master import (
     master_menu_keyboard, appointment_actions_keyboard,
     master_calendar_keyboard, schedule_settings_keyboard,
-    block_slot_calendar_keyboard, block_type_keyboard, stats_period_keyboard
+    block_slot_calendar_keyboard, block_type_keyboard, stats_period_keyboard,
+    block_time_slots_keyboard
 )
 from bot.keyboards.client import main_menu_keyboard
 from bot.utils import format_date
@@ -401,6 +402,47 @@ async def block_full_day(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
     await callback.message.edit_text(f"🚫 День {date_str} заблокирован / Day blocked")
+    await callback.answer("✅ Blocked!")
+
+
+@router.callback_query(F.data.startswith("m_block_time:"))
+async def show_block_time_slots(callback: CallbackQuery):
+    """Show time slots for blocking."""
+    if not is_master(callback.from_user.id):
+        await callback.answer()
+        return
+
+    user = await get_user(callback.from_user.id)
+    lang = user['language'] if user else 'ru'
+
+    date_str = callback.data.split(":")[1]
+
+    await callback.message.edit_text(
+        f"📅 {format_date(date_str, lang)}\n\nВыберите время для блокировки / Select time to block:",
+        reply_markup=block_time_slots_keyboard(date_str, lang)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("m_block_slot|"))
+async def block_specific_slot(callback: CallbackQuery, state: FSMContext):
+    """Block specific time slot."""
+    if not is_master(callback.from_user.id):
+        await callback.answer()
+        return
+
+    parts = callback.data.split("|")
+    date_str = parts[1]
+    time_str = parts[2]
+
+    await block_slot(date_str, start_time=time_str, end_time=time_str, reason="Blocked slot")
+
+    user = await get_user(callback.from_user.id)
+    lang = user['language'] if user else 'ru'
+
+    await callback.message.edit_text(
+        f"🚫 Слот {time_str} на {format_date(date_str, lang)} заблокирован / Slot blocked"
+    )
     await callback.answer("✅ Blocked!")
 
 

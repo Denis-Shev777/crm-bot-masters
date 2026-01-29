@@ -165,3 +165,33 @@ def stats_period_keyboard(lang: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Всё / All", callback_data="m_stats:365")
     )
     return builder.as_markup()
+
+
+def block_time_slots_keyboard(date_str: str, lang: str) -> InlineKeyboardMarkup:
+    """Time slots for blocking specific hours."""
+    builder = InlineKeyboardBuilder()
+
+    # Generate time slots from 09:00 to 18:00
+    times = []
+    for hour in range(9, 18):
+        times.append(f"{hour:02d}:00")
+        times.append(f"{hour:02d}:30")
+
+    row = []
+    for time_slot in times:
+        row.append(InlineKeyboardButton(
+            text=time_slot,
+            callback_data=f"m_block_slot|{date_str}|{time_slot}"
+        ))
+        if len(row) == 4:
+            builder.row(*row)
+            row = []
+
+    if row:
+        builder.row(*row)
+
+    builder.row(InlineKeyboardButton(
+        text=get_text("back", lang),
+        callback_data=f"m_block_day:{date_str}"
+    ))
+    return builder.as_markup()
